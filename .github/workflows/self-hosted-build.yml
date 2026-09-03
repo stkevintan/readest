@@ -1,0 +1,284 @@
+name: Self-hosted Native Build
+
+on:
+  workflow_dispatch:
+    inputs:
+      targets:
+        description: Native client targets to build
+        required: true
+        default: android
+        type: choice
+        options:
+          - android
+          - linux
+          - windows
+          - all
+      android_signing:
+        description: Android package type (release requires the three ANDROID_* secrets)
+        required: true
+        default: debug
+        type: choice
+        options:
+          - debug
+          - release
+
+permissions:
+  contents: read
+
+concurrency:
+  group: self-hosted-native-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  select-targets:
+    runs-on: ubuntu-latest
+    outputs:
+      matrix: ${{ steps.matrix.outputs.matrix }}
+    steps:
+      - name: select build matrix
+        id: matrix
+        env:
+          TARGETS: ${{ inputs.targets }}
+        run: |
+          case "$TARGETS" in
+            android)
+              matrix='{"include":[{"platform":"android","os":"ubuntu-latest","rust_target":"aarch64-linux-android"}]}'
+              ;;
+            linux)
+              matrix='{"include":[{"platform":"linux","os":"ubuntu-22.04","rust_target":"x86_64-unknown-linux-gnu"}]}'
+              ;;
+            windows)
+              matrix='{"include":[{"platform":"windows","os":"windows-latest","rust_target":"x86_64-pc-windows-msvc"}]}'
+              ;;
+            all)
+              matrix='{"include":[{"platform":"android","os":"ubuntu-latest","rust_target":"aarch64-linux-android"},{"platform":"linux","os":"ubuntu-22.04","rust_target":"x86_64-unknown-linux-gnu"},{"platform":"windows","os":"windows-latest","rust_target":"x86_64-pc-windows-msvc"}]}'
+              ;;
+            *)
+              echo "::error::Unsupported target selection."
+              exit 1
+              ;;
+          esac
+          echo "matrix=$matrix" >> "$GITHUB_OUTPUT"
+
+  build:
+    needs: select-targets
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.select-targets.outputs.matrix) }}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 90
+    env:
+      NEXT_PUBLIC_SUPABASE_URL: ${{ vars.NEXT_PUBLIC_SUPABASE_URL }}
+      NEXT_PUBLIC_SUPABASE_ANON_KEY: ${{ secrets.NEXT_PUBLIC_SUPABASE_ANON_KEY }}
+      NEXT_PUBLIC_API_BASE_URL: ${{ vars.NEXT_PUBLIC_API_BASE_URL || vars.NEXT_PUBLIC_SUPABASE_URL }}
+      NEXT_PUBLIC_OBJECT_STORAGE_TYPE: ${{ vars.NEXT_PUBLIC_OBJECT_STORAGE_TYPE || 's3' }}
+      NEXT_PUBLIC_SELF_HOSTED: 'true'
+      NEXT_PUBLIC_APP_PLATFORM: tauri
+    steps:
+      - name: validate private backend configuration
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          require_value() {
+            local name="$1"
+            local value="$2"
+            if [[ -z "${value//[[:space:]]/}" ]]; then
+              echo "::error::$name is required. Configure it in this repository before building."
+              exit 1
+            fi
+            if [[ "$value" == *$'\n'* || "$value" == *$'\r'* ]]; then
+              echo "::error::$name must be a single-line value."
+              exit 1
+            fi
+          }
+
+          require_url() {
+            require_value "$1" "$2"
+            case "$2" in
+              http://*|https://*) ;;
+              *)
+                echo "::error::$1 must be an absolute http(s) URL."
+                exit 1
+                ;;
+            esac
+          }
+
+          require_url NEXT_PUBLIC_SUPABASE_URL "$NEXT_PUBLIC_SUPABASE_URL"
+          require_value NEXT_PUBLIC_SUPABASE_ANON_KEY "$NEXT_PUBLIC_SUPABASE_ANON_KEY"
+          require_url NEXT_PUBLIC_API_BASE_URL "$NEXT_PUBLIC_API_BASE_URL"
+          require_value NEXT_PUBLIC_OBJECT_STORAGE_TYPE "$NEXT_PUBLIC_OBJECT_STORAGE_TYPE"
+          echo "::add-mask::$NEXT_PUBLIC_SUPABASE_ANON_KEY"
+
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: initialize git submodules
+        run: git submodule update --init --recursive
+
+      - name: setup pnpm
+        uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6
+
+      - name: setup node
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v6
+        with:
+          node-version: 24
+          cache: pnpm
+
+      - name: setup Java
+        if: matrix.platform == 'android'
+        uses: actions/setup-java@dd06d9cba3e5552c54d9f8ea23572deb30010f7c # v6.0.0
+        with:
+          distribution: zulu
+          java-version: '17'
+
+      - name: setup Android SDK
+        if: matrix.platform == 'android'
+        uses: android-actions/setup-android@40fd30fb8d7440372e1316f5d1809ec01dcd3699 # v4
+
+      - name: install Android NDK
+        if: matrix.platform == 'android'
+        run: sdkmanager "ndk;28.2.13676358"
+
+      - name: install dependencies
+        run: pnpm install --frozen-lockfile --prefer-offline
+
+      - name: prepare bundled web dependencies
+        run: pnpm --filter @readest/readest-app setup-vendors
+
+      - name: install Rust stable
+        uses: dtolnay/rust-toolchain@29eef336d9b2848a0b548edc03f92a220660cdb8 # stable
+        with:
+          targets: ${{ matrix.rust_target }}
+
+      - name: cache Rust build
+        uses: Swatinem/rust-cache@f0d9c3887740aee45f6153b24b3a6b815192ec16 # v2
+        with:
+          key: self-hosted-${{ matrix.os }}-${{ matrix.platform }}
+          workspaces: apps/readest-app/src-tauri
+
+      - name: install Linux build dependencies
+        if: matrix.platform == 'linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y pkg-config libfontconfig-dev libgtk-3-dev libwebkit2gtk-4.1 libwebkit2gtk-4.1-dev libjavascriptcoregtk-4.1 libjavascriptcoregtk-4.1-dev gir1.2-javascriptcoregtk-4.1 gir1.2-webkit2-4.1 libappindicator3-dev librsvg2-dev patchelf xdg-utils
+
+      - name: initialize Android project
+        if: matrix.platform == 'android'
+        working-directory: apps/readest-app
+        run: |
+          rm -rf src-tauri/gen/android
+          pnpm tauri android init
+          pnpm tauri icon ../../data/icons/readest-book.png
+          git checkout -- .
+
+      - name: create private backend environment
+        shell: bash
+        run: |
+          set -euo pipefail
+          env_file="$GITHUB_WORKSPACE/apps/readest-app/.env.local"
+          umask 077
+          printf '%s\n' \
+            "NEXT_PUBLIC_SUPABASE_URL=$NEXT_PUBLIC_SUPABASE_URL" \
+            "NEXT_PUBLIC_SUPABASE_ANON_KEY=$NEXT_PUBLIC_SUPABASE_ANON_KEY" \
+            "NEXT_PUBLIC_API_BASE_URL=$NEXT_PUBLIC_API_BASE_URL" \
+            "NEXT_PUBLIC_OBJECT_STORAGE_TYPE=$NEXT_PUBLIC_OBJECT_STORAGE_TYPE" \
+            "NEXT_PUBLIC_SELF_HOSTED=$NEXT_PUBLIC_SELF_HOSTED" \
+            "NEXT_PUBLIC_APP_PLATFORM=$NEXT_PUBLIC_APP_PLATFORM" \
+            > "$env_file"
+
+      - name: build Android APK
+        if: matrix.platform == 'android'
+        shell: bash
+        working-directory: apps/readest-app
+        env:
+          NDK_HOME: ${{ env.ANDROID_HOME }}/ndk/28.2.13676358
+          ANDROID_KEY_BASE64: ${{ secrets.ANDROID_KEY_BASE64 }}
+          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+        run: |
+          set -euo pipefail
+          signing="${{ inputs.android_signing }}"
+
+          if [ "$signing" = "release" ]; then
+            for name in ANDROID_KEY_BASE64 ANDROID_KEY_ALIAS ANDROID_KEY_PASSWORD; do
+              if [ -z "${!name:-}" ]; then
+                echo "::error::$name is required when android_signing is release."
+                exit 1
+              fi
+            done
+            echo "::add-mask::$ANDROID_KEY_ALIAS"
+            echo "::add-mask::$ANDROID_KEY_PASSWORD"
+            printf '%s' "$ANDROID_KEY_BASE64" | base64 --decode > "$RUNNER_TEMP/readest-keystore.jks"
+            printf '%s\n' \
+              "keyAlias=$ANDROID_KEY_ALIAS" \
+              "password=$ANDROID_KEY_PASSWORD" \
+              "storeFile=$RUNNER_TEMP/readest-keystore.jks" \
+              > src-tauri/gen/android/keystore.properties
+            pnpm tauri android build --target aarch64
+          else
+            pnpm tauri android build --debug --target aarch64
+          fi
+
+          mkdir -p "$GITHUB_WORKSPACE/self-hosted-artifacts/android"
+          find src-tauri/gen/android/app/build/outputs/apk -type f -name '*.apk' \
+            -exec cp {} "$GITHUB_WORKSPACE/self-hosted-artifacts/android/" \;
+          test -n "$(find "$GITHUB_WORKSPACE/self-hosted-artifacts/android" -type f -name '*.apk' -print -quit)"
+
+      # Keep these two pins synchronized with release.yml and nightly.yml.
+      - name: install pinned AppImage Tauri CLI
+        if: matrix.platform == 'linux'
+        run: cargo install tauri-cli --git https://github.com/tauri-apps/tauri --rev 162626969b382d52faebdf6c7264460bd9a47d1f --force
+
+      - name: pin AppImage bundler helper
+        if: matrix.platform == 'linux'
+        run: |
+          set -euo pipefail
+          cache_dir="${XDG_CACHE_HOME:-$HOME/.cache}/tauri"
+          mkdir -p "$cache_dir"
+          curl -fsSL --retry 3 -o "$cache_dir/quick-sharun.sh" \
+            "https://raw.githubusercontent.com/pkgforge-dev/Anylinux-AppImages/b3a9e985cdedf7efa81d172f182cd13983743147/useful-tools/quick-sharun.sh"
+          chmod +x "$cache_dir/quick-sharun.sh"
+
+      - name: build unsigned Linux AppImage
+        if: matrix.platform == 'linux'
+        working-directory: apps/readest-app
+        env:
+          NODE_OPTIONS: --max-old-space-size=8192
+          TAURI_BUNDLER_NEW_APPIMAGE_FORMAT: 'true'
+        run: cargo tauri build --ci --no-sign --bundles appimage --config '{"bundle":{"createUpdaterArtifacts":false}}'
+
+      - name: build unsigned Windows installer
+        if: matrix.platform == 'windows'
+        working-directory: apps/readest-app
+        env:
+          NODE_OPTIONS: --max-old-space-size=8192
+        run: pnpm tauri build --ci --no-sign --target x86_64-pc-windows-msvc --bundles nsis --config '{"bundle":{"createUpdaterArtifacts":false}}'
+
+      - name: upload Android APK
+        if: matrix.platform == 'android'
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: readest-self-hosted-android-${{ inputs.android_signing }}
+          path: self-hosted-artifacts/android/*.apk
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: upload unsigned Linux AppImage
+        if: matrix.platform == 'linux'
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: readest-self-hosted-linux-x64-unsigned
+          path: target/release/bundle/appimage/*.AppImage
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: upload unsigned Windows installer
+        if: matrix.platform == 'windows'
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: readest-self-hosted-windows-x64-unsigned
+          path: target/x86_64-pc-windows-msvc/release/bundle/nsis/*-setup.exe
+          if-no-files-found: error
+          retention-days: 14

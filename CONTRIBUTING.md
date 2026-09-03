@@ -130,6 +130,42 @@ pnpm tauri ios build
 Please refer to our release script if you experience any issues:
 https://github.com/readest/readest/blob/main/.github/workflows/release.yml
 
+### 6. Build native clients for a self-hosted backend
+
+Fork maintainers can run the **Self-hosted Native Build** workflow from the
+repository's **Actions** tab. It only runs through `workflow_dispatch`, uploads
+build outputs as workflow artifacts, and does not create a release or upload to
+an external service.
+
+Configure these repository settings before triggering it:
+
+| Type | Name | Required | Purpose |
+| --- | --- | --- | --- |
+| Variable | `NEXT_PUBLIC_SUPABASE_URL` | Yes | Public URL of the private Supabase gateway |
+| Secret | `NEXT_PUBLIC_SUPABASE_ANON_KEY` | Yes | Supabase anonymous client key; treated as a secret in build logs |
+| Variable | `NEXT_PUBLIC_API_BASE_URL` | No | Readest API origin; defaults to `NEXT_PUBLIC_SUPABASE_URL` so an unset value cannot fall back to Readest's public service |
+| Variable | `NEXT_PUBLIC_OBJECT_STORAGE_TYPE` | No | Storage adapter; defaults to `s3` |
+
+The workflow always sets `NEXT_PUBLIC_SELF_HOSTED=true` and
+`NEXT_PUBLIC_APP_PLATFORM=tauri`. It never uses a Supabase service-role key,
+`JWT_SECRET`, Readest's Tauri updater key, Apple credentials, or R2 credentials.
+Missing required values stop the job before the application build.
+
+Choose `android` (the default), `linux`, `windows`, or `all` when starting a
+run. Android defaults to an installable arm64 debug APK using the Android debug
+keystore. To request a release-signed APK, add all three optional repository
+Secrets below and select `release`:
+
+- `ANDROID_KEY_BASE64`: base64-encoded JKS keystore
+- `ANDROID_KEY_ALIAS`: key alias
+- `ANDROID_KEY_PASSWORD`: password used by the keystore and key
+
+Artifacts are retained for 14 days. Linux produces an x86_64 AppImage and
+Windows produces an x86_64 NSIS installer. The desktop artifacts are explicitly
+unsigned, so operating systems may show an untrusted-publisher warning. macOS
+and iOS are excluded because distributable builds require Apple signing and
+provisioning credentials.
+
 
 ### 7. More information
 
