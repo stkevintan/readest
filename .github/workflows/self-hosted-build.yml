@@ -11,6 +11,7 @@ on:
         options:
           - android
           - linux
+          - macos
           - windows
           - all
       android_signing:
@@ -47,11 +48,14 @@ jobs:
             linux)
               matrix='{"include":[{"platform":"linux","os":"ubuntu-22.04","rust_target":"x86_64-unknown-linux-gnu"}]}'
               ;;
+            macos)
+              matrix='{"include":[{"platform":"macos","os":"macos-latest","rust_target":"x86_64-apple-darwin,aarch64-apple-darwin"}]}'
+              ;;
             windows)
               matrix='{"include":[{"platform":"windows","os":"windows-latest","rust_target":"x86_64-pc-windows-msvc"}]}'
               ;;
             all)
-              matrix='{"include":[{"platform":"android","os":"ubuntu-latest","rust_target":"aarch64-linux-android"},{"platform":"linux","os":"ubuntu-22.04","rust_target":"x86_64-unknown-linux-gnu"},{"platform":"windows","os":"windows-latest","rust_target":"x86_64-pc-windows-msvc"}]}'
+              matrix='{"include":[{"platform":"android","os":"ubuntu-latest","rust_target":"aarch64-linux-android"},{"platform":"linux","os":"ubuntu-22.04","rust_target":"x86_64-unknown-linux-gnu"},{"platform":"macos","os":"macos-latest","rust_target":"x86_64-apple-darwin,aarch64-apple-darwin"},{"platform":"windows","os":"windows-latest","rust_target":"x86_64-pc-windows-msvc"}]}'
               ;;
             *)
               echo "::error::Unsupported target selection."
@@ -256,6 +260,28 @@ jobs:
           NODE_OPTIONS: --max-old-space-size=8192
         run: pnpm tauri build --ci --no-sign --target x86_64-pc-windows-msvc --bundles nsis --config '{"bundle":{"createUpdaterArtifacts":false}}'
 
+      - name: build unsigned and unnotarized universal macOS DMG
+        if: matrix.platform == 'macos'
+        working-directory: apps/readest-app
+        env:
+          NODE_OPTIONS: --max-old-space-size=8192
+        run: pnpm tauri build --ci --no-sign --target universal-apple-darwin --bundles dmg --config '{"bundle":{"createUpdaterArtifacts":false}}'
+
+      - name: verify universal macOS application
+        if: matrix.platform == 'macos'
+        run: |
+          set -euo pipefail
+          app="target/universal-apple-darwin/release/bundle/macos/Readest.app"
+          binary="$app/Contents/MacOS/readest"
+          archs="$(lipo -archs "$binary")"
+          [[ " $archs " == *" arm64 "* ]]
+          [[ " $archs " == *" x86_64 "* ]]
+          if codesign --verify "$app" 2>/dev/null; then
+            echo "::error::Expected an unsigned macOS app, but codesign verification succeeded."
+            exit 1
+          fi
+          printf 'macOS artifact: unsigned, unnotarized, architectures: %s\n' "$archs" >> "$GITHUB_STEP_SUMMARY"
+
       - name: upload Android APK
         if: matrix.platform == 'android'
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
@@ -280,5 +306,14 @@ jobs:
         with:
           name: readest-self-hosted-windows-x64-unsigned
           path: target/x86_64-pc-windows-msvc/release/bundle/nsis/*-setup.exe
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: upload unsigned and unnotarized universal macOS DMG
+        if: matrix.platform == 'macos'
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: readest-self-hosted-macos-universal-unsigned-unnotarized
+          path: target/universal-apple-darwin/release/bundle/dmg/*.dmg
           if-no-files-found: error
           retention-days: 14

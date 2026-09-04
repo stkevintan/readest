@@ -151,20 +151,32 @@ The workflow always sets `NEXT_PUBLIC_SELF_HOSTED=true` and
 `JWT_SECRET`, Readest's Tauri updater key, Apple credentials, or R2 credentials.
 Missing required values stop the job before the application build.
 
-Choose `android` (the default), `linux`, `windows`, or `all` when starting a
-run. Android defaults to an installable arm64 debug APK using the Android debug
-keystore. To request a release-signed APK, add all three optional repository
-Secrets below and select `release`:
+Choose `android` (the default), `linux`, `macos`, `windows`, or `all` when
+starting a run. Android defaults to an installable arm64 debug APK using the
+Android debug keystore. To request a release-signed APK, add all three optional
+repository Secrets below and select `release`:
 
 - `ANDROID_KEY_BASE64`: base64-encoded JKS keystore
 - `ANDROID_KEY_ALIAS`: key alias
 - `ANDROID_KEY_PASSWORD`: password used by the keystore and key
 
-Artifacts are retained for 14 days. Linux produces an x86_64 AppImage and
-Windows produces an x86_64 NSIS installer. The desktop artifacts are explicitly
-unsigned, so operating systems may show an untrusted-publisher warning. macOS
-and iOS are excluded because distributable builds require Apple signing and
-provisioning credentials.
+Artifacts are retained for 14 days. Linux produces an x86_64 AppImage, Windows
+produces an x86_64 NSIS installer, and macOS produces one universal DMG that
+runs natively on both Apple Silicon and Intel Macs. All desktop artifacts are
+explicitly unsigned; the macOS DMG is also not notarized.
+
+Gatekeeper will normally block the macOS app on first launch. Try
+Control-clicking (or right-clicking) **Readest.app** and choosing **Open**. For a
+trusted artifact built in your own fork, you can instead install it in
+`/Applications` and remove the downloaded-file quarantine attribute:
+
+```bash
+xattr -dr com.apple.quarantine /Applications/Readest.app
+```
+
+Only do this for a build whose workflow run and source commit you trust. iOS is
+excluded because distributable builds require Apple signing and provisioning
+credentials.
 
 
 ### 7. More information
