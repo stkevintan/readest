@@ -271,7 +271,14 @@ jobs:
         if: matrix.platform == 'macos'
         run: |
           set -euo pipefail
-          app="target/universal-apple-darwin/release/bundle/macos/Readest.app"
+          dmg="$(find target/universal-apple-darwin/release/bundle/dmg -type f -name '*.dmg' -print -quit)"
+          test -n "$dmg"
+          mountpoint="$RUNNER_TEMP/readest-dmg"
+          mkdir -p "$mountpoint"
+          hdiutil attach -nobrowse -readonly -mountpoint "$mountpoint" "$dmg"
+          trap 'hdiutil detach "$mountpoint"' EXIT
+
+          app="$mountpoint/Readest.app"
           binary="$app/Contents/MacOS/readest"
           archs="$(lipo -archs "$binary")"
           [[ " $archs " == *" arm64 "* ]]
