@@ -1,6 +1,12 @@
 import { describe, it, expect, vi, afterEach } from 'vitest';
 import { jwtDecode } from 'jwt-decode';
-import { getCustomizationPurchased, isCustomizationAllowed, isSelfHosted } from '@/utils/access';
+import {
+  getCustomizationPurchased,
+  getStoragePlanData,
+  getTranslationQuota,
+  isCustomizationAllowed,
+  isSelfHosted,
+} from '@/utils/access';
 
 vi.mock('jwt-decode', () => ({ jwtDecode: vi.fn() }));
 
@@ -68,5 +74,14 @@ describe('self-hosted deployments', () => {
     vi.stubEnv('SELF_HOSTED', '');
     vi.stubEnv('NEXT_PUBLIC_SELF_HOSTED', 'true');
     expect(isSelfHosted()).toBe(true);
+  });
+
+  it('uses public fixed quotas baked into a native self-hosted build', () => {
+    vi.stubEnv('NEXT_PUBLIC_STORAGE_FIXED_QUOTA', String(10 * 1024 * 1024 * 1024));
+    vi.stubEnv('NEXT_PUBLIC_TRANSLATION_FIXED_QUOTA', '50000');
+    const token = mockToken({ plan: 'free', storage_usage_bytes: 0 });
+
+    expect(getStoragePlanData(token).quota).toBe(10 * 1024 * 1024 * 1024);
+    expect(getTranslationQuota('free')).toBe(50000);
   });
 });

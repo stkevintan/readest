@@ -76,6 +76,8 @@ jobs:
       NEXT_PUBLIC_SUPABASE_ANON_KEY: ${{ secrets.NEXT_PUBLIC_SUPABASE_ANON_KEY }}
       NEXT_PUBLIC_API_BASE_URL: ${{ vars.NEXT_PUBLIC_API_BASE_URL || vars.NEXT_PUBLIC_SUPABASE_URL }}
       NEXT_PUBLIC_OBJECT_STORAGE_TYPE: ${{ vars.NEXT_PUBLIC_OBJECT_STORAGE_TYPE || 's3' }}
+      NEXT_PUBLIC_STORAGE_FIXED_QUOTA: ${{ vars.NEXT_PUBLIC_STORAGE_FIXED_QUOTA || '10737418240' }}
+      NEXT_PUBLIC_TRANSLATION_FIXED_QUOTA: ${{ vars.NEXT_PUBLIC_TRANSLATION_FIXED_QUOTA || '50000' }}
       NEXT_PUBLIC_SELF_HOSTED: 'true'
       NEXT_PUBLIC_APP_PLATFORM: tauri
     steps:
@@ -112,6 +114,16 @@ jobs:
           require_value NEXT_PUBLIC_SUPABASE_ANON_KEY "$NEXT_PUBLIC_SUPABASE_ANON_KEY"
           require_url NEXT_PUBLIC_API_BASE_URL "$NEXT_PUBLIC_API_BASE_URL"
           require_value NEXT_PUBLIC_OBJECT_STORAGE_TYPE "$NEXT_PUBLIC_OBJECT_STORAGE_TYPE"
+          require_value NEXT_PUBLIC_STORAGE_FIXED_QUOTA "$NEXT_PUBLIC_STORAGE_FIXED_QUOTA"
+          require_value NEXT_PUBLIC_TRANSLATION_FIXED_QUOTA "$NEXT_PUBLIC_TRANSLATION_FIXED_QUOTA"
+          [[ "$NEXT_PUBLIC_STORAGE_FIXED_QUOTA" =~ ^[1-9][0-9]*$ ]] || {
+            echo "::error::NEXT_PUBLIC_STORAGE_FIXED_QUOTA must be a positive integer in bytes."
+            exit 1
+          }
+          [[ "$NEXT_PUBLIC_TRANSLATION_FIXED_QUOTA" =~ ^[1-9][0-9]*$ ]] || {
+            echo "::error::NEXT_PUBLIC_TRANSLATION_FIXED_QUOTA must be a positive integer."
+            exit 1
+          }
           echo "::add-mask::$NEXT_PUBLIC_SUPABASE_ANON_KEY"
 
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -188,6 +200,8 @@ jobs:
             "NEXT_PUBLIC_SUPABASE_ANON_KEY=$NEXT_PUBLIC_SUPABASE_ANON_KEY" \
             "NEXT_PUBLIC_API_BASE_URL=$NEXT_PUBLIC_API_BASE_URL" \
             "NEXT_PUBLIC_OBJECT_STORAGE_TYPE=$NEXT_PUBLIC_OBJECT_STORAGE_TYPE" \
+            "NEXT_PUBLIC_STORAGE_FIXED_QUOTA=$NEXT_PUBLIC_STORAGE_FIXED_QUOTA" \
+            "NEXT_PUBLIC_TRANSLATION_FIXED_QUOTA=$NEXT_PUBLIC_TRANSLATION_FIXED_QUOTA" \
             "NEXT_PUBLIC_SELF_HOSTED=$NEXT_PUBLIC_SELF_HOSTED" \
             "NEXT_PUBLIC_APP_PLATFORM=$NEXT_PUBLIC_APP_PLATFORM" \
             > "$env_file"
@@ -266,6 +280,10 @@ jobs:
         env:
           NODE_OPTIONS: --max-old-space-size=8192
         run: pnpm tauri build --ci --no-sign --target universal-apple-darwin --bundles dmg --config '{"bundle":{"createUpdaterArtifacts":false}}'
+
+      - name: verify compiled self-hosted frontend configuration
+        working-directory: apps/readest-app
+        run: node scripts/verify-self-hosted-build.mjs
 
       - name: verify universal macOS application
         if: matrix.platform == 'macos'

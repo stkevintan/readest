@@ -5,6 +5,7 @@ import { DEFAULT_DAILY_TRANSLATION_QUOTA, DEFAULT_STORAGE_QUOTA } from '@/servic
 import { isWebAppPlatform } from '@/services/environment';
 import { getDailyUsage } from '@/services/translators/utils';
 import { getRuntimeConfig } from '@/services/runtimeConfig';
+import { getPublicBuildConfig } from '@/services/buildConfig';
 
 interface Token {
   plan: UserPlan;
@@ -153,9 +154,10 @@ export const PREMIUM_PLANS: readonly UserPlan[] = ['plus', 'pro'];
  */
 export const isSelfHosted = (): boolean =>
   getRuntimeConfig()?.selfHosted === true ||
-  // `??` would stop at an empty string, so an explicitly blank SELF_HOSTED
-  // would mask NEXT_PUBLIC_SELF_HOSTED. `||` falls through on empty too.
-  (process.env['SELF_HOSTED'] || process.env['NEXT_PUBLIC_SELF_HOSTED']) === 'true';
+  getPublicBuildConfig().selfHosted ||
+  // The server-side runtime variable remains available to web routes. Native
+  // clients use getPublicBuildConfig(), whose NEXT_PUBLIC value is compiled in.
+  process.env['SELF_HOSTED'] === 'true';
 
 /**
  * The single gate for premium features: a self-hosted deployment, a paid
@@ -172,8 +174,11 @@ export const getStoragePlanData = (token: string) => {
   const usage = data['storage_usage_bytes'] || 0;
   const purchasedQuota = data['storage_purchased_bytes'] || 0;
   const runtimeConfig = getRuntimeConfig();
+  const publicBuildConfig = getPublicBuildConfig();
   const fixedQuota =
-    runtimeConfig?.storageFixedQuota ?? parseInt(process.env['STORAGE_FIXED_QUOTA'] ?? '0');
+    runtimeConfig?.storageFixedQuota ??
+    publicBuildConfig.storageFixedQuota ??
+    parseInt(process.env['STORAGE_FIXED_QUOTA'] ?? '0');
   const planQuota = fixedQuota || DEFAULT_STORAGE_QUOTA[plan] || DEFAULT_STORAGE_QUOTA['free'];
   const quota = planQuota + purchasedQuota;
 
@@ -186,8 +191,11 @@ export const getStoragePlanData = (token: string) => {
 
 export const getTranslationQuota = (plan: UserPlan): number => {
   const runtimeConfig = getRuntimeConfig();
+  const publicBuildConfig = getPublicBuildConfig();
   const fixedQuota =
-    runtimeConfig?.translationFixedQuota ?? parseInt(process.env['TRANSLATION_FIXED_QUOTA'] ?? '0');
+    runtimeConfig?.translationFixedQuota ??
+    publicBuildConfig.translationFixedQuota ??
+    parseInt(process.env['TRANSLATION_FIXED_QUOTA'] ?? '0');
   return (
     fixedQuota || DEFAULT_DAILY_TRANSLATION_QUOTA[plan] || DEFAULT_DAILY_TRANSLATION_QUOTA['free']
   );

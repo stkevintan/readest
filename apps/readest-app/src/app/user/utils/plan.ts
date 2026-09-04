@@ -149,6 +149,23 @@ const PLAN_ACCENTS: Record<UserPlan, PlanAccent> = {
 export const getPlanAccent = (plan: UserPlan): PlanAccent =>
   PLAN_ACCENTS[plan] ?? PLAN_ACCENTS.free;
 
+export const isManagedBillingEnabled = (selfHosted: boolean): boolean => !selfHosted;
+
+export const getAccountPlanDetails = (
+  planCode: UserPlan,
+  availablePlans: (AvailablePlan & StripeAvailablePlan)[],
+  selfHosted: boolean,
+): PlanDetails => {
+  const details = getPlanDetails(planCode, availablePlans);
+  if (!selfHosted) return details;
+
+  return {
+    ...details,
+    name: _('Self-hosted'),
+    color: 'not-eink:bg-emerald-100 not-eink:text-emerald-800 eink-bordered',
+  };
+};
+
 export function getPlanDetails(
   planCode: UserPlan,
   availablePlans: (AvailablePlan & StripeAvailablePlan)[],

@@ -1,8 +1,10 @@
 import { describe, it, expect } from 'vitest';
 import {
+  getAccountPlanDetails,
   getPlanDetails,
   getSubscriptionIntervals,
   getYearlySavingsPercent,
+  isManagedBillingEnabled,
   shouldUseBillingPortal,
 } from '@/app/user/utils/plan';
 import { AvailablePlan, UserPlan, PlanInterval, QuotaFeature } from '@/types/quota';
@@ -27,6 +29,24 @@ function makePlan(overrides: Partial<TestPlan> = {}): TestPlan {
     ...overrides,
   };
 }
+
+describe('getAccountPlanDetails', () => {
+  it('labels a self-hosted account without changing its subscription plan', () => {
+    const result = getAccountPlanDetails('free', [], true);
+
+    expect(result.name).toBe('Self-hosted');
+    expect(result.plan).toBe('free');
+  });
+
+  it('keeps the subscription label for a managed deployment', () => {
+    expect(getAccountPlanDetails('free', [], false).name).toBe('Free Plan');
+  });
+
+  it('disables managed-service billing for self-hosted deployments', () => {
+    expect(isManagedBillingEnabled(true)).toBe(false);
+    expect(isManagedBillingEnabled(false)).toBe(true);
+  });
+});
 
 describe('getPlanDetails', () => {
   describe('free plan', () => {
