@@ -145,11 +145,18 @@ Configure these repository settings before triggering it:
 | Secret | `NEXT_PUBLIC_SUPABASE_ANON_KEY` | Yes | Supabase anonymous client key; treated as a secret in build logs |
 | Variable | `NEXT_PUBLIC_API_BASE_URL` | No | Readest API origin; defaults to `NEXT_PUBLIC_SUPABASE_URL` so an unset value cannot fall back to Readest's public service |
 | Variable | `NEXT_PUBLIC_OBJECT_STORAGE_TYPE` | No | Storage adapter; defaults to `s3` |
+| Variable | `NEXT_PUBLIC_STORAGE_FIXED_QUOTA` | No | Native-client storage quota in bytes; defaults to 10 GiB (`10737418240`) |
+| Variable | `NEXT_PUBLIC_TRANSLATION_FIXED_QUOTA` | No | Native-client daily translation quota; defaults to `50000` characters |
 
 The workflow always sets `NEXT_PUBLIC_SELF_HOSTED=true` and
 `NEXT_PUBLIC_APP_PLATFORM=tauri`. It never uses a Supabase service-role key,
 `JWT_SECRET`, Readest's Tauri updater key, Apple credentials, or R2 credentials.
-Missing required values stop the job before the application build.
+Missing or malformed required values stop the job before the application build.
+After building, the workflow also checks the exported frontend for the private
+backend, self-hosted mode, and fixed quotas before uploading any artifact.
+Keep both native quota Variables identical to the backend's
+`STORAGE_FIXED_QUOTA` and `TRANSLATION_FIXED_QUOTA`; the backend remains the
+authority that enforces these limits.
 
 Choose `android` (the default), `linux`, `macos`, `windows`, or `all` when
 starting a run. Android defaults to an installable arm64 debug APK using the
@@ -164,6 +171,10 @@ Artifacts are retained for 14 days. Linux produces an x86_64 AppImage, Windows
 produces an x86_64 NSIS installer, and macOS produces one universal DMG that
 runs natively on both Apple Silicon and Intel Macs. All desktop artifacts are
 explicitly unsigned; the macOS DMG is also not notarized.
+
+Self-hosted clients keep the account's real subscription claim unchanged, but
+label the deployment as **Self-hosted**, hide managed-service billing prompts,
+and unlock premium customization through the existing `SELF_HOSTED` entitlement.
 
 Gatekeeper will normally block the macOS app on first launch. Try
 Control-clicking (or right-clicking) **Readest.app** and choosing **Open**. For a

@@ -15,7 +15,12 @@ import type { PlanType } from '@/types/quota';
 import { navigateToLibrary } from '@/utils/nav';
 import { eventDispatcher } from '@/utils/event';
 import { isTauriAppPlatform } from '@/services/environment';
-import { getPlanDetails, shouldUseBillingPortal } from './utils/plan';
+import { isSelfHosted } from '@/utils/access';
+import {
+  getAccountPlanDetails,
+  isManagedBillingEnabled,
+  shouldUseBillingPortal,
+} from './utils/plan';
 import { Toast } from '@/components/Toast';
 import {
   purchaseIAPProduct,
@@ -94,6 +99,8 @@ const ProfilePage = () => {
   useTheme({ systemUIVisible: false });
 
   const { quotas, userProfilePlan = 'free', customizationPurchased } = useQuotaStats();
+  const selfHosted = isSelfHosted();
+  const billingEnabled = isManagedBillingEnabled(selfHosted);
   const {
     handleLogout,
     handleResetPassword,
@@ -306,8 +313,7 @@ const ProfilePage = () => {
   const avatarUrl = user?.user_metadata?.['picture'] || user?.user_metadata?.['avatar_url'];
   const userFullName = user?.user_metadata?.['full_name'] || '-';
   const userEmail = user?.email || '';
-  const userPlanDetails =
-    getPlanDetails(userProfilePlan, availablePlans) || getPlanDetails('free', availablePlans);
+  const userPlanDetails = getAccountPlanDetails(userProfilePlan, availablePlans, selfHosted);
 
   return (
     <div
@@ -369,22 +375,25 @@ const ProfilePage = () => {
                   </div>
                 ) : (
                   <>
-                    <div className='flex flex-col gap-y-8 sm:px-6'>
-                      <PlansComparison
-                        availablePlans={availablePlans}
-                        userPlan={userProfilePlan}
-                        customizationPurchased={customizationPurchased}
-                        onSubscribe={
-                          appService.hasIAP && iapAvailable
-                            ? handleIAPSubscribe
-                            : handleStripeSubscribe
-                        }
-                      />
-                    </div>
+                    {billingEnabled && (
+                      <div className='flex flex-col gap-y-8 sm:px-6'>
+                        <PlansComparison
+                          availablePlans={availablePlans}
+                          userPlan={userProfilePlan}
+                          customizationPurchased={customizationPurchased}
+                          onSubscribe={
+                            appService.hasIAP && iapAvailable
+                              ? handleIAPSubscribe
+                              : handleStripeSubscribe
+                          }
+                        />
+                      </div>
+                    )}
                     <div className='flex flex-col gap-y-8 px-6'>
                       <AccountActions
                         userPlan={userProfilePlan}
                         iapAvailable={iapAvailable}
+                        billingEnabled={billingEnabled}
                         onLogout={handleLogout}
                         onResetPassword={handleResetPassword}
                         onUpdateEmail={handleUpdateEmail}

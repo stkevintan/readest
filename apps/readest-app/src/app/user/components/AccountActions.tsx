@@ -48,6 +48,7 @@ const DeleteConfirmationModal: React.FC<DeleteConfirmationModalProps> = ({
 interface AccountActionsProps {
   userPlan: UserPlan;
   iapAvailable: boolean;
+  billingEnabled?: boolean;
   onLogout: () => void;
   onResetPassword: () => void;
   onUpdateEmail: () => void;
@@ -63,6 +64,7 @@ interface AccountActionsProps {
 const AccountActions: React.FC<AccountActionsProps> = ({
   userPlan,
   iapAvailable,
+  billingEnabled = true,
   onLogout,
   onResetPassword,
   onUpdateEmail,
@@ -109,7 +111,7 @@ const AccountActions: React.FC<AccountActionsProps> = ({
         }}
       />
       <div className='flex flex-col gap-4 md:grid md:grid-cols-2 lg:grid-cols-3'>
-        {appService?.hasIAP && iapAvailable ? (
+        {billingEnabled && appService?.hasIAP && iapAvailable ? (
           <button
             onClick={onRestorePurchase}
             className='bg-base-300 hover:bg-base-content/15 text-base-content border-base-content/10 eink-bordered w-full rounded-lg border px-6 py-3 font-medium transition-colors duration-150 md:w-auto'
@@ -117,6 +119,7 @@ const AccountActions: React.FC<AccountActionsProps> = ({
             {_('Restore Purchase')}
           </button>
         ) : (
+          billingEnabled &&
           userPlan !== 'free' && (
             <button
               onClick={onManageSubscription}
